@@ -20,7 +20,7 @@ use std::sync::Arc;
 use crate::planner::{ContextProvider, PlannerContext, SqlToRel};
 
 use crate::stack::StackGuard;
-use datafusion_common::{Constraints, DFSchema, Result, not_impl_err};
+use datafusion_common::{Constraints, DFSchema, Result, not_impl_err, plan_err};
 use datafusion_expr::expr::{Sort, WildcardOptions};
 
 use datafusion_expr::select_expr::SelectExpr;
@@ -28,9 +28,9 @@ use datafusion_expr::{
     CreateMemoryTable, DdlStatement, Distinct, Expr, LogicalPlan, LogicalPlanBuilder,
 };
 use sqlparser::ast::{
-    Expr as SQLExpr, ExprWithAliasAndOrderBy, Ident, LimitClause, Offset, OffsetRows,
-    OrderBy, OrderByExpr, OrderByKind, PipeOperator, Query, SelectInto, SetExpr,
-    SetOperator, SetQuantifier, TableAlias,
+    ExceptSelectItem, Expr as SQLExpr, ExprWithAliasAndOrderBy, Ident, LimitClause,
+    Offset, OffsetRows, OrderBy, OrderByExpr, OrderByKind, PipeOperator, Query,
+    SelectInto, SetExpr, SetOperator, SetQuantifier, TableAlias,
 };
 use sqlparser::tokenizer::Span;
 
@@ -214,6 +214,19 @@ impl<S: ContextProvider> SqlToRel<'_, S> {
             ),
             PipeOperator::Join(join) => {
                 self.parse_relation_join(plan, join, planner_context)
+            }
+            PipeOperator::Drop { columns } => {
+                let Some((first, rest)) = columns.split_first() else {
+                    return plan_err!("DROP requires at least one column");
+                };
+                let options = WildcardOptions {
+                    except: Some(ExceptSelectItem {
+                        first_element: first.clone(),
+                        additional_elements: rest.to_vec(),
+                    }),
+                    ..WildcardOptions::default()
+                };
+                self.project(plan, vec![SelectExpr::Wildcard(options)])
             }
 
             x => not_impl_err!("`{x}` pipe operator is not supported yet"),

@@ -351,6 +351,7 @@ DataFusion currently supports the following pipe operators:
 - [EXCEPT](#pipe_except)
 - [AGGREGATE](#pipe_aggregate)
 - [JOIN](#pipe_join)
+- [DROP](#pipe_drop)
 
 (pipe_where)=
 
@@ -539,4 +540,20 @@ select * from range(0,3)
 | apples | 2     | 123  |
 | bananas| 5     | NULL |
 +--------+-------+------+
+```
+
+(pipe_drop)=
+
+### DROP
+
+Removes columns from the output, equivalent to `SELECT * EXCEPT(columns)`.
+
+```sql
+select 1 as a, 2 as b, 3 as c
+|> drop b;
++---+---+
+| a | c |
++---+---+
+| 1 | 3 |
++---+---+
 ```

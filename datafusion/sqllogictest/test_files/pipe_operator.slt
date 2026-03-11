@@ -195,3 +195,30 @@ query TII
 ----
 apples 2 123
 bananas 5 NULL
+
+# DROP pipe - drop two columns
+query RT
+SELECT * FROM test |> DROP a, n
+----
+1.1 a
+2.2 b
+3.3 c
+
+# DROP pipe - drop single column
+query IRT
+SELECT * FROM test |> DROP n
+----
+1 1.1 a
+2 2.2 b
+3 3.3 c
+
+# DROP pipe - chained with other operators
+query R
+SELECT * FROM test |> WHERE a > 1 |> DROP a, c, n
+----
+2.2
+3.3
+
+# Error: DROP non-existent column
+statement error
+SELECT * FROM test |> DROP nonexistent
