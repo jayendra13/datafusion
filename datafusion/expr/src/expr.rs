@@ -618,6 +618,41 @@ impl BinaryExpr {
     }
 }
 
+/// Write a child expression of a binary expression, adding parentheses
+/// when needed based on operator precedence. For left-associative operators,
+/// right children with equal precedence are parenthesized to preserve the
+/// tree structure (e.g. `a - (b - c)` stays parenthesized).
+fn write_binary_child(
+    f: &mut Formatter<'_>,
+    expr: &Expr,
+    precedence: u8,
+    is_right: bool,
+    fmt_expr: impl Fn(&Expr, &mut Formatter<'_>) -> fmt::Result,
+) -> fmt::Result {
+    match expr {
+        Expr::BinaryExpr(child) => {
+            let p = child.op.precedence();
+            let child_has_lower_precedence = p < precedence;
+            let child_has_equal_precedence_on_right = is_right && p == precedence;
+            // p == 0 is currently unreachable since all Operator variants
+            // have non-zero precedence (see Operator::precedence() in
+            // expr-common/src/operator.rs), but kept as a defensive guard
+            // in case a new operator is added without assigning a precedence.
+            let needs_parens = p == 0
+                || child_has_lower_precedence
+                || child_has_equal_precedence_on_right;
+            if needs_parens {
+                write!(f, "(")?;
+                fmt_expr(expr, f)?;
+                write!(f, ")")
+            } else {
+                fmt_expr(expr, f)
+            }
+        }
+        _ => fmt_expr(expr, f),
+    }
+}
+
 impl Display for BinaryExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // Put parentheses around child binary expressions so that we can see the difference
@@ -625,29 +660,14 @@ impl Display for BinaryExpr {
         // based on operator precedence. For example, `(a AND b) OR c` and `a AND b OR c` are
         // equivalent and the parentheses are not necessary.
 
-        fn write_child(
-            f: &mut Formatter<'_>,
-            expr: &Expr,
-            precedence: u8,
-        ) -> fmt::Result {
-            match expr {
-                Expr::BinaryExpr(child) => {
-                    let p = child.op.precedence();
-                    if p == 0 || p < precedence {
-                        write!(f, "({child})")?;
-                    } else {
-                        write!(f, "{child}")?;
-                    }
-                }
-                _ => write!(f, "{expr}")?,
-            }
-            Ok(())
-        }
-
         let precedence = self.op.precedence();
-        write_child(f, self.left.as_ref(), precedence)?;
+        write_binary_child(f, self.left.as_ref(), precedence, false, |e, f| {
+            write!(f, "{e}")
+        })?;
         write!(f, " {} ", self.op)?;
-        write_child(f, self.right.as_ref(), precedence)
+        write_binary_child(f, self.right.as_ref(), precedence, true, |e, f| {
+            write!(f, "{e}")
+        })
     }
 }
 
@@ -2858,29 +2878,14 @@ impl Display for SchemaDisplay<'_> {
                 }
             }
             Expr::BinaryExpr(BinaryExpr { left, op, right }) => {
-                fn write_child(
-                    f: &mut Formatter<'_>,
-                    expr: &Expr,
-                    precedence: u8,
-                ) -> fmt::Result {
-                    match expr {
-                        Expr::BinaryExpr(child) => {
-                            let p = child.op.precedence();
-                            if p == 0 || p < precedence {
-                                write!(f, "({})", SchemaDisplay(expr))?;
-                            } else {
-                                write!(f, "{}", SchemaDisplay(expr))?;
-                            }
-                        }
-                        _ => write!(f, "{}", SchemaDisplay(expr))?,
-                    }
-                    Ok(())
-                }
-
                 let precedence = op.precedence();
-                write_child(f, left.as_ref(), precedence)?;
+                write_binary_child(f, left.as_ref(), precedence, false, |e, f| {
+                    write!(f, "{}", SchemaDisplay(e))
+                })?;
                 write!(f, " {op} ")?;
-                write_child(f, right.as_ref(), precedence)
+                write_binary_child(f, right.as_ref(), precedence, true, |e, f| {
+                    write!(f, "{}", SchemaDisplay(e))
+                })
             }
             Expr::Case(Case {
                 expr,
@@ -4063,6 +4068,82 @@ mod test {
             ),
             "column_name"
         );
+    }
+
+    // Helper: build a BinaryExpr from two Exprs and an Operator
+    fn bin(left: Expr, op: Operator, right: Expr) -> Expr {
+        Expr::BinaryExpr(BinaryExpr::new(Box::new(left), op, Box::new(right)))
+    }
+
+    #[test]
+    fn test_binary_expr_parenthesization() {
+        use Operator::*;
+        let (a, b, c) = (col("a"), col("b"), col("c"));
+
+        // (expr, expected Display, expected SchemaDisplay)
+        let cases: Vec<(Expr, &str, &str)> = vec![
+            // Right child, equal precedence — needs parens (columns)
+            (
+                bin(a.clone(), Minus, bin(b.clone(), Minus, c.clone())),
+                "a - (b - c)",
+                "a - (b - c)",
+            ),
+            // Right child, equal precedence, mixed ops (columns)
+            (
+                bin(a.clone(), Divide, bin(b.clone(), Multiply, c.clone())),
+                "a / (b * c)",
+                "a / (b * c)",
+            ),
+            // Left child, equal precedence — no parens (columns)
+            (
+                bin(bin(a.clone(), Minus, b.clone()), Minus, c.clone()),
+                "a - b - c",
+                "a - b - c",
+            ),
+            // Lower-precedence left child — needs parens (original issue #16054)
+            (
+                bin(bin(lit(1i64), Plus, lit(2i64)), Multiply, lit(3i64)),
+                "(Int64(1) + Int64(2)) * Int64(3)",
+                "(Int64(1) + Int64(2)) * Int64(3)",
+            ),
+            // Right child, equal precedence — needs parens (literals, minus)
+            (
+                bin(lit(1i64), Minus, bin(lit(2i64), Minus, lit(3i64))),
+                "Int64(1) - (Int64(2) - Int64(3))",
+                "Int64(1) - (Int64(2) - Int64(3))",
+            ),
+            // Left child, equal precedence — no parens (literals, minus)
+            (
+                bin(bin(lit(1i64), Minus, lit(2i64)), Minus, lit(3i64)),
+                "Int64(1) - Int64(2) - Int64(3)",
+                "Int64(1) - Int64(2) - Int64(3)",
+            ),
+            // Right child, equal precedence — needs parens (literals, div/mul)
+            (
+                bin(lit(6i64), Divide, bin(lit(2i64), Multiply, lit(3i64))),
+                "Int64(6) / (Int64(2) * Int64(3))",
+                "Int64(6) / (Int64(2) * Int64(3))",
+            ),
+            // Left child, equal precedence — no parens (literals, div/mul)
+            (
+                bin(bin(lit(6i64), Divide, lit(2i64)), Multiply, lit(3i64)),
+                "Int64(6) / Int64(2) * Int64(3)",
+                "Int64(6) / Int64(2) * Int64(3)",
+            ),
+        ];
+
+        for (expr, expected_display, expected_schema) in &cases {
+            assert_eq!(
+                format!("{expr}"),
+                *expected_display,
+                "Display mismatch for expected: {expected_display}"
+            );
+            assert_eq!(
+                format!("{}", SchemaDisplay(expr)),
+                *expected_schema,
+                "SchemaDisplay mismatch for expected: {expected_schema}"
+            );
+        }
     }
 
     fn wildcard_options(

@@ -2247,7 +2247,7 @@ mod tests {
         // not part of the test, just good to know:
         assert_snapshot!(plan,
         @r"
-        Filter: sum(test.c) > Int64(10) AND b > Int64(10) AND sum(test.c) < Int64(20)
+        Filter: sum(test.c) > Int64(10) AND (b > Int64(10) AND sum(test.c) < Int64(20))
           Aggregate: groupBy=[[b]], aggr=[[sum(test.c)]]
             Projection: test.a AS b, test.c
               TableScan: test
