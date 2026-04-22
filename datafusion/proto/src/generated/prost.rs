@@ -1478,6 +1478,10 @@ pub struct PhysicalBinaryExprNode {
     pub r: ::core::option::Option<::prost::alloc::boxed::Box<PhysicalExprNode>>,
     #[prost(string, tag = "3")]
     pub op: ::prost::alloc::string::String,
+    /// Linearized operands for chains of the same operator (e.g. a AND b AND c).
+    /// When present, `l` and `r` are ignored and `operands` holds the flattened list.
+    #[prost(message, repeated, tag = "4")]
+    pub operands: ::prost::alloc::vec::Vec<PhysicalExprNode>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PhysicalDateTimeIntervalExprNode {
@@ -1785,6 +1789,12 @@ pub struct AnalyzeExecNode {
     pub input: ::core::option::Option<::prost::alloc::boxed::Box<PhysicalPlanNode>>,
     #[prost(message, optional, tag = "4")]
     pub schema: ::core::option::Option<super::datafusion_common::Schema>,
+    /// Optional metric category filter.
+    /// Empty means "plan only". Absent (has_metric_categories=false) means "all".
+    #[prost(bool, tag = "5")]
+    pub has_metric_categories: bool,
+    #[prost(string, repeated, tag = "6")]
+    pub metric_categories: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CrossJoinExecNode {

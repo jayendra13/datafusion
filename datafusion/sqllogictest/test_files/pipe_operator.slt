@@ -222,3 +222,6 @@ SELECT * FROM test |> WHERE a > 1 |> DROP a, c, n
 # Error: DROP non-existent column
 statement error
 SELECT * FROM test |> DROP nonexistent
+# Config reset
+statement ok
+RESET datafusion.sql_parser.dialect;

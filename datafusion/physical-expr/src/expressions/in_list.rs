@@ -17,7 +17,6 @@
 
 //! Implementation of `InList` expressions: [`InListExpr`]
 
-use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -725,11 +724,6 @@ impl std::fmt::Display for InListExpr {
 }
 
 impl PhysicalExpr for InListExpr {
-    /// Return a reference to Any that can be used for downcasting
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(DataType::Boolean)
     }
@@ -941,7 +935,6 @@ pub fn in_list(
 mod tests {
     use super::*;
     use crate::expressions::{col, lit, try_cast};
-    use arrow::buffer::NullBuffer;
     use arrow::datatypes::{IntervalDayTime, IntervalMonthDayNano, i256};
     use datafusion_common::plan_err;
     use datafusion_expr::type_coercion::binary::comparison_coercion;
